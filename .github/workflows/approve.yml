@@ -1,0 +1,36 @@
+name: Doc nut duyet va dang bai
+on:
+  schedule:
+    - cron: "*/10 2-15 * * *"   # moi 10 phut, tu 9h den 22h59 gio Viet Nam
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repost
+  cancel-in-progress: false
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: python main.py approve
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+      - name: Luu trang thai
+        if: always()
+        run: |
+          git config user.name "repost-bot"
+          git config user.email "repost-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "duyet $(date -u +%F_%H%M)"
+          git pull --rebase && git push
