@@ -29,7 +29,7 @@ DRAFT_DIR = ROOT / "drafts"
 SOURCE_URL = os.getenv("SOURCE_URL", "https://www.facebook.com/cuahangdientugiatot.dn")
 LOOKBACK_HOURS = int(os.getenv("LOOKBACK_HOURS", "26"))
 AI_PROVIDER = (os.getenv("AI_PROVIDER") or "gemini").lower()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-flash-latest"
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL") or "claude-haiku-4-5"
 GRAPH = "https://graph.facebook.com/v27.0"
 VN_TZ = timezone(timedelta(hours=7))
