@@ -30,6 +30,7 @@ SOURCE_URL = os.getenv("SOURCE_URL", "https://www.facebook.com/cuahangdientugiat
 LOOKBACK_HOURS = int(os.getenv("LOOKBACK_HOURS", "26"))
 AI_PROVIDER = (os.getenv("AI_PROVIDER") or "gemini").lower()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-flash-latest"
+GEMINI_MODELS = [GEMINI_MODEL, "gemini-flash-lite-latest"]
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL") or "claude-haiku-4-5"
 GRAPH = "https://graph.facebook.com/v27.0"
 VN_TZ = timezone(timedelta(hours=7))
@@ -153,7 +154,7 @@ def _parse_json(s):
 def ai_rewrite(text, images, extra=""):
     """images: list[bytes] (jpeg). Trả về dict theo RULES."""
     prompt = RULES + extra + "\n\n--- BÀI GỐC ---\n" + (text or "(không có chữ)") + f"\n--- Số ảnh đính kèm: {len(images)} ---"
-    for attempt in range(3):
+    for attempt in range(6):
         try:
             if AI_PROVIDER == "claude":
                 content = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
@@ -169,7 +170,7 @@ def ai_rewrite(text, images, extra=""):
             parts = [{"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(b).decode()}} for b in images]
             parts.append({"text": prompt})
             r = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODELS[attempt % len(GEMINI_MODELS)]}:generateContent",
                 params={"key": env("GEMINI_API_KEY")}, timeout=120,
                 json={"contents": [{"parts": parts}],
                       "generationConfig": {"responseMimeType": "application/json", "temperature": 0.7}})
