@@ -73,7 +73,7 @@ def env(name):
     v = os.getenv(name)
     if not v:
         sys.exit(f"Thiếu biến môi trường {name} (kiểm tra GitHub Secrets)")
-    return v
+    return v.strip()
 
 
 def load_state():
