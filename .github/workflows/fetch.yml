@@ -1,0 +1,41 @@
+name: Lay bai moi va gui nhap
+on:
+  schedule:
+    - cron: "57 1 * * *"   # 8:57 sang gio Viet Nam
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repost
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: python main.py fetch
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AI_PROVIDER: ${{ vars.AI_PROVIDER }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+      - name: Luu trang thai
+        if: always()
+        run: |
+          git config user.name "repost-bot"
+          git config user.email "repost-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "cap nhat nhap $(date -u +%F)"
+          git pull --rebase && git push
