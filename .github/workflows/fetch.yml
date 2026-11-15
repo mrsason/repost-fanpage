@@ -1,11 +1,12 @@
 name: Lay bai moi va gui nhap
 on:
   schedule:
-    - cron: "15 1 * * *"   # 8:15 sang gio Viet Nam
+    - cron: "15 1 * * *"   # 8:15 sáng giờ Việt Nam
   workflow_dispatch: {}
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: repost
@@ -14,7 +15,7 @@ concurrency:
 jobs:
   fetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,11 +34,6 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
-      - run: python main.py listen
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
       - name: Luu trang thai
         if: always()
         run: |
@@ -45,4 +41,9 @@ jobs:
           git config user.email "repost-bot@users.noreply.github.com"
           git add -A
           git diff --cached --quiet || git commit -m "cap nhat nhap $(date -u +%F)"
-          git pull --rebase && git push
+          git pull --rebase origin main && git push origin HEAD:main
+      - name: Bat bot truc nut
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run listen.yml --ref main
