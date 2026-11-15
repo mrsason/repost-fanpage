@@ -179,7 +179,7 @@ def ai_rewrite(text, images, extra=""):
         except Exception as e:  # mạng chập chờn / quá hạn mức
             print("AI lỗi, thử lại:", e)
             time.sleep(10 * (attempt + 1))
-    raise RuntimeError("AI không trả lời được sau 3 lần")
+    raise RuntimeError("AI không trả lời được sau 6 lần")
 
 
 # ---------------------------------------------------------------- Apify
@@ -366,7 +366,7 @@ def cmd_fetch():
     if n == 0:
         send_text("☀️ Sáng nay trang nguồn không có bài bán hàng mới.")
     else:
-        send_text(f"☝️ Có {n} bài chờ duyệt. Bấm ✅ Đăng hoặc ❌ Bỏ dưới mỗi bài. Trong 45 phút tới bot phản hồi ngay; sau đó bot xử lý theo đợt (10–60 phút).")
+        send_text(f"☝️ Có {n} bài chờ duyệt. Bấm ✅ Đăng hoặc ❌ Bỏ dưới mỗi bài, bot phản hồi ngay (8h–23h).")
 
 
 # ---------------------------------------------------------------- lệnh approve
@@ -485,27 +485,76 @@ def handle_update(u, chat):
         send_draft(d)
 
 
+TG_FILE = ROOT / "tg_state.json"
+
+
+def _git(*args):
+    import subprocess
+    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
+
+
+def git_sync(msg=None):
+    """GIT_SYNC=1: kéo bản mới nhất (bài nháp mới) trước khi xử lý; có msg thì commit + push sau khi xử lý."""
+    if os.getenv("GIT_SYNC") != "1":
+        return
+    if msg:
+        _git("add", "-A")
+        if _git("diff", "--cached", "--quiet").returncode != 0:
+            _git("commit", "-q", "-m", msg)
+    for _ in range(3):
+        _git("pull", "--rebase", "-q", "origin", "main")
+        if not msg:
+            return
+        if _git("push", "-q", "origin", "HEAD:main").returncode == 0:
+            return
+        time.sleep(3)
+
+
+def load_offset():
+    if TG_FILE.exists():
+        return json.loads(TG_FILE.read_text(encoding="utf-8")).get("tg_offset", 0)
+    return load_state().get("tg_offset", 0)
+
+
+def save_offset(off):
+    TG_FILE.write_text(json.dumps({"tg_offset": off}), encoding="utf-8")
+
+
+def listen_minutes():
+    until = int(os.getenv("LISTEN_UNTIL") or "23")
+    now = datetime.now(VN_TZ)
+    stop = now.replace(hour=until, minute=0, second=0, microsecond=0)
+    return max(0.0, min(340.0, (stop - now).total_seconds() / 60))
+
+
 def cmd_poll(minutes):
-    st = load_state()
     chat = str(env("TELEGRAM_CHAT_ID"))
+    off = load_offset()
     end = time.time() + minutes * 60
+    print(f"Trực nút trong {minutes:.0f} phút")
     while True:
         wait = int(max(0, min(50, end - time.time())))
-        js = tg("getUpdates", offset=st.get("tg_offset", 0), timeout=wait,
-                allowed_updates=["message", "callback_query"])
-        print("Telegram:", js.get("ok"), [(u.get("callback_query") or {}).get("data") or "tin nhắn" for u in js.get("result", [])])
-        for u in js.get("result", []):
-            st["tg_offset"] = u["update_id"] + 1
-            save_state(st)
+        js = tg("getUpdates", offset=off, timeout=wait, allowed_updates=["message", "callback_query"])
+        res = js.get("result", [])
+        if res:
+            print("Telegram:", [(u.get("callback_query") or {}).get("data") or "tin nhắn" for u in res])
+            git_sync()
+        for u in res:
+            off = u["update_id"] + 1
+            save_offset(off)
             try:
                 handle_update(u, chat)
             except Exception as e:
                 print("Lỗi xử lý:", e)
                 send_text(f"⚠️ Lỗi khi xử lý: {str(e)[:300]}")
-        save_state(st)
+        if res:
+            git_sync(f"duyet {datetime.now(VN_TZ):%d/%m %H:%M}")
+        if not js.get("ok"):
+            time.sleep(10)
         if time.time() >= end:
             break
+    save_offset(off)
 
 
 if __name__ == "__main__":
-    {"fetch": cmd_fetch, "approve": lambda: cmd_poll(0), "listen": lambda: cmd_poll(int(os.getenv("LISTEN_MINUTES") or "45")), "test-ai": cmd_test_ai}[sys.argv[1] if len(sys.argv) > 1 else "fetch"]()
+    {"fetch": cmd_fetch, "approve": lambda: cmd_poll(0), "listen": lambda: cmd_poll(listen_minutes()), "test-ai": cmd_test_ai}[sys.argv[1] if len(sys.argv) > 1 else "fetch"]()
