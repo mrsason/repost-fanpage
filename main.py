@@ -366,7 +366,7 @@ def cmd_fetch():
     if n == 0:
         send_text("☀️ Sáng nay trang nguồn không có bài bán hàng mới.")
     else:
-        send_text(f"☝️ Có {n} bài chờ duyệt. Bấm ✅ Đăng hoặc ❌ Bỏ dưới mỗi bài (bài lên trang trong ~10 phút).")
+        send_text(f"☝️ Có {n} bài chờ duyệt. Bấm ✅ Đăng hoặc ❌ Bỏ dưới mỗi bài. Trong 45 phút tới bot phản hồi ngay; sau đó bot xử lý theo đợt (10–60 phút).")
 
 
 # ---------------------------------------------------------------- lệnh approve
@@ -430,5 +430,81 @@ def cmd_test_ai():
     print("\n" + text + f"\n\n({len(text)} ký tự, {len(text.splitlines())} dòng) {warns}")
 
 
+# ---------------------------------------------------------------- xử lý nút bấm (phản hồi ngay, chặn trùng)
+def _set_buttons(chat, mid, rows):
+    tg("editMessageReplyMarkup", chat_id=chat, message_id=mid, reply_markup={"inline_keyboard": rows})
+
+
+def handle_update(u, chat):
+    if "callback_query" in u:
+        cq = u["callback_query"]
+        if str(cq["message"]["chat"]["id"]) != chat:
+            return
+        mid = cq["message"]["message_id"]
+        action, pid = (cq.get("data") or "x:x").split(":", 1)
+        if action not in ("ok", "no"):
+            tg("answerCallbackQuery", callback_query_id=cq["id"], text="Bài này đang/đã được xử lý")
+            return
+        d = load_draft(pid)
+        if not d:
+            tg("answerCallbackQuery", callback_query_id=cq["id"], text="Bài này đã xử lý rồi")
+            return
+        if action == "ok":
+            _set_buttons(chat, mid, [[{"text": "⏳ Đã nhận – đang đăng…", "callback_data": f"wait:{pid}"}]])
+            tg("answerCallbackQuery", callback_query_id=cq["id"], text="Đã nhận lệnh đăng")
+            try:
+                link = fb_publish(d)
+            except Exception as e:
+                _set_buttons(chat, mid, buttons(pid)["inline_keyboard"])
+                send_text(f"⚠️ Đăng lỗi, thử bấm Đăng lại: {str(e)[:300]}", reply_to_message_id=mid)
+                return
+            _set_buttons(chat, mid, [[{"text": "✅ Đã đăng – mở bài", "url": link}]])
+            send_text(f"✅ Đã đăng: {link}", reply_to_message_id=mid)
+        else:
+            tg("answerCallbackQuery", callback_query_id=cq["id"], text="Đã bỏ bài")
+            _set_buttons(chat, mid, [[{"text": "❌ Đã bỏ", "callback_data": f"done:{pid}"}]])
+        delete_draft(d)
+    elif "message" in u:
+        m = u["message"]
+        if str(m["chat"]["id"]) != chat or not m.get("text"):
+            return
+        rep = m.get("reply_to_message")
+        if not rep or not DRAFT_DIR.exists():
+            return
+        d = None
+        for p in DRAFT_DIR.glob("*.json"):
+            x = load_draft(p.stem)
+            if x and x.get("tg_message_id") == rep["message_id"]:
+                d = x
+                break
+        if not d:
+            send_text("Không tìm thấy bài nháp tương ứng (có thể đã đăng/bỏ).")
+            return
+        d["text"], d["warnings"] = normalize_post(m["text"])
+        _set_buttons(chat, rep["message_id"], [[{"text": "✏️ Đã sửa – xem bản mới bên dưới", "callback_data": f"done:{d['id']}"}]])
+        send_draft(d)
+
+
+def cmd_poll(minutes):
+    st = load_state()
+    chat = str(env("TELEGRAM_CHAT_ID"))
+    end = time.time() + minutes * 60
+    while True:
+        wait = int(max(0, min(50, end - time.time())))
+        js = tg("getUpdates", offset=st.get("tg_offset", 0), timeout=wait,
+                allowed_updates=["message", "callback_query"])
+        for u in js.get("result", []):
+            st["tg_offset"] = u["update_id"] + 1
+            save_state(st)
+            try:
+                handle_update(u, chat)
+            except Exception as e:
+                print("Lỗi xử lý:", e)
+                send_text(f"⚠️ Lỗi khi xử lý: {str(e)[:300]}")
+        save_state(st)
+        if time.time() >= end:
+            break
+
+
 if __name__ == "__main__":
-    {"fetch": cmd_fetch, "approve": cmd_approve, "test-ai": cmd_test_ai}[sys.argv[1] if len(sys.argv) > 1 else "fetch"]()
+    {"fetch": cmd_fetch, "approve": lambda: cmd_poll(0), "listen": lambda: cmd_poll(int(os.getenv("LISTEN_MINUTES") or "45")), "test-ai": cmd_test_ai}[sys.argv[1] if len(sys.argv) > 1 else "fetch"]()
