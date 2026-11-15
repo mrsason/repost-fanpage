@@ -358,7 +358,7 @@ def cmd_fetch():
             (ROOT / rel).write_bytes(b)
             paths.append(rel)
         n += 1
-        d = {"id": pid, "source_page": p.get("pageName") or "", "source_url": p.get("url"), "source_time": t.astimezone(VN_TZ).strftime("%H:%M %d/%m"),
+        d = {"id": pid, "source_page": requests.utils.unquote(p.get("pageName") or "").replace("-", " "), "source_url": p.get("url"), "source_time": t.astimezone(VN_TZ).strftime("%H:%M %d/%m"),
              "text": final, "warnings": warns, "images": paths, "dropped_images": len(bad)}
         save_draft(d)
         send_draft(d, n)
