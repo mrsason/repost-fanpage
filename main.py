@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parent
 STATE_FILE = ROOT / "state.json"
 DRAFT_DIR = ROOT / "drafts"
 
-SOURCE_URL = os.getenv("SOURCE_URL", "https://www.facebook.com/cuahangdientugiatot.dn")
+SOURCE_URLS = [u.strip() for u in (os.getenv("SOURCE_URL") or "https://www.facebook.com/cuahangdientugiatot.dn,https://www.facebook.com/profile.php?id=61556486280886").split(",") if u.strip()]
 LOOKBACK_HOURS = int(os.getenv("LOOKBACK_HOURS", "26"))
 AI_PROVIDER = (os.getenv("AI_PROVIDER") or "gemini").lower()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-flash-latest"
@@ -186,7 +186,7 @@ def ai_rewrite(text, images, extra=""):
 def fetch_posts(since):
     url = "https://api.apify.com/v2/acts/apify~facebook-posts-scraper/run-sync-get-dataset-items"
     r = requests.post(url, params={"token": env("APIFY_TOKEN"), "timeout": 280}, timeout=320, json={
-        "startUrls": [{"url": SOURCE_URL}],
+        "startUrls": [{"url": u} for u in SOURCE_URLS],
         "resultsLimit": int(os.getenv("RESULTS_LIMIT", "15")),
         "onlyPostsNewerThan": since.strftime("%Y-%m-%d"),
     })
@@ -266,7 +266,7 @@ def send_draft(d, n=None):
         tg("sendMediaGroup", chat_id=chat, media=json.dumps(media), _files=files)
         for f in files.values():
             f.close()
-    head = f"📝 Bài {n} – gốc lúc {d['source_time']}" if n else "📝 Bài đã sửa"
+    head = f"📝 Bài {n} – {d.get('source_page', '')} lúc {d['source_time']}" if n else "📝 Bài đã sửa"
     info = f"Ảnh dùng: {len(imgs)} | ảnh bỏ (có địa chỉ shop khác): {d.get('dropped_images', 0)}"
     if d.get("warnings"):
         info += "\n⚠️ " + "; ".join(d["warnings"])
@@ -358,7 +358,7 @@ def cmd_fetch():
             (ROOT / rel).write_bytes(b)
             paths.append(rel)
         n += 1
-        d = {"id": pid, "source_url": p.get("url"), "source_time": t.astimezone(VN_TZ).strftime("%H:%M %d/%m"),
+        d = {"id": pid, "source_page": p.get("pageName") or "", "source_url": p.get("url"), "source_time": t.astimezone(VN_TZ).strftime("%H:%M %d/%m"),
              "text": final, "warnings": warns, "images": paths, "dropped_images": len(bad)}
         save_draft(d)
         send_draft(d, n)
