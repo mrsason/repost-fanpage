@@ -493,6 +493,7 @@ def cmd_poll(minutes):
         wait = int(max(0, min(50, end - time.time())))
         js = tg("getUpdates", offset=st.get("tg_offset", 0), timeout=wait,
                 allowed_updates=["message", "callback_query"])
+        print("Telegram:", js.get("ok"), [(u.get("callback_query") or {}).get("data") or "tin nhắn" for u in js.get("result", [])])
         for u in js.get("result", []):
             st["tg_offset"] = u["update_id"] + 1
             save_state(st)
