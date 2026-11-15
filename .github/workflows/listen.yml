@@ -1,0 +1,54 @@
+name: Bot truc nut duyet
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "40 1 * * *"   # 8:40 sáng VN – dự phòng nếu bước lấy bài không bật được bot
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: listen
+  cancel-in-progress: false
+
+jobs:
+  listen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: echo "START=$(date +%s)" >> "$GITHUB_ENV"
+      - name: Truc nut bam Telegram den 23h
+        run: |
+          git config user.name "repost-bot"
+          git config user.email "repost-bot@users.noreply.github.com"
+          python main.py listen
+        env:
+          GIT_SYNC: "1"
+          LISTEN_UNTIL: "23"
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+      - name: Luu trang thai
+        if: always()
+        run: |
+          git add -A
+          git diff --cached --quiet || git commit -m "truc nut $(date -u +%F_%H%M)"
+          git pull --rebase origin main && git push origin HEAD:main
+      - name: Chay tiep neu chua het gio
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          H=$(TZ=Asia/Ho_Chi_Minh date +%-H)
+          ELAPSED=$(( $(date +%s) - START ))
+          if [ "$H" -ge 8 ] && [ "$H" -lt 23 ] && [ "$ELAPSED" -gt 600 ]; then
+            gh workflow run listen.yml --ref main
+          fi
