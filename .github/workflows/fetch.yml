@@ -14,9 +14,11 @@ concurrency:
 jobs:
   fetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -28,6 +30,11 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AI_PROVIDER: ${{ vars.AI_PROVIDER }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+      - run: python main.py listen
+        env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
