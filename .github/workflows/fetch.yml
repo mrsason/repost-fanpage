@@ -1,7 +1,7 @@
 name: Lay bai moi va gui nhap
 on:
   schedule:
-    - cron: "15 1 * * *"   # 8:15 sáng giờ Việt Nam
+    - cron: "30 0 * * *"   # 7:30 sáng giờ Việt Nam
   workflow_dispatch: {}
 
 permissions:
