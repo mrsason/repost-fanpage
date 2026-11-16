@@ -2,7 +2,7 @@ name: Bot truc nut duyet
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: "40 1 * * *"   # 8:40 sáng VN – dự phòng nếu bước lấy bài không bật được bot
+    - cron: "55 0 * * *"   # 7:55 sáng VN – dự phòng nếu bước lấy bài không bật được bot
 
 permissions:
   contents: write
@@ -49,6 +49,6 @@ jobs:
         run: |
           H=$(TZ=Asia/Ho_Chi_Minh date +%-H)
           ELAPSED=$(( $(date +%s) - START ))
-          if [ "$H" -ge 8 ] && [ "$H" -lt 23 ] && [ "$ELAPSED" -gt 600 ]; then
+          if [ "$H" -ge 7 ] && [ "$H" -lt 23 ] && [ "$ELAPSED" -gt 600 ]; then
             gh workflow run listen.yml --ref main
           fi
