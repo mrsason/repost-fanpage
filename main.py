@@ -47,9 +47,7 @@ Nhiệm vụ: đọc bài gốc (chữ + ảnh) từ fanpage của một cửa h
 
 1) is_sale_post: true nếu bài giới thiệu sản phẩm / giá / khuyến mãi để bán hàng. false nếu là bài cảm ơn khách, sự kiện,
    bốc thăm, tuyển dụng, livestream, chúc mừng, tin tức... (những bài này bỏ qua).
-2) bad_images: danh sách số thứ tự ảnh (bắt đầu từ 0) có ghi ĐỊA CHỈ, SỐ ĐIỆN THOẠI hoặc TÊN CỬA HÀNG/CHI NHÁNH cụ thể
-   (ví dụ "Điện Thắng Bắc", số nhà, tên đường). Logo/chữ "Điện Máy Xanh" chung chung thì KHÔNG tính.
-3) post: bài viết lại (chỉ phần nội dung, KHÔNG ghi địa chỉ, KHÔNG ghi link bản đồ — hệ thống tự thêm 2 dòng địa chỉ):
+2) post: bài viết lại (chỉ phần nội dung, KHÔNG ghi địa chỉ, KHÔNG ghi link bản đồ — hệ thống tự thêm 2 dòng địa chỉ):
    - Không sao chép nguyên văn; viết lại bằng từ ngữ của bạn.
    - Dùng từ ngữ không bị Facebook hạn chế: không dùng "rẻ nhất", "cam kết", "100%", "inbox", "vay tiền", "giảm cân",
      từ giật gân, viết hoa toàn bộ quá nhiều, không kêu gọi bình luận/chia sẻ.
@@ -66,7 +64,7 @@ Camera kỹ thuật số nhỏ gọn, dễ mang theo, ghi lại trọn vẹn m�
 💰 Giá chỉ 8.460.000đ
 Ghé shop xem máy trực tiếp và nhận tư vấn chi tiết.
 
-Chỉ trả về JSON đúng dạng: {{"is_sale_post": true, "reason": "...", "bad_images": [], "post": "..."}}"""
+Chỉ trả về JSON đúng dạng: {{"is_sale_post": true, "reason": "...", "post": "..."}}"""
 
 
 # ---------------------------------------------------------------- tiện ích
@@ -151,9 +149,8 @@ def _parse_json(s):
     return json.loads(m.group(0) if m else s)
 
 
-def ai_rewrite(text, images, extra=""):
-    """images: list[bytes] (jpeg). Trả về dict theo RULES."""
-    prompt = RULES + extra + "\n\n--- BÀI GỐC ---\n" + (text or "(không có chữ)") + f"\n--- Số ảnh đính kèm: {len(images)} ---"
+def ai_call(prompt, images, temperature=0.7):
+    """Gọi AI (Gemini hoặc Claude) với ảnh + chữ, trả về dict JSON."""
     for attempt in range(6):
         try:
             if AI_PROVIDER == "claude":
@@ -163,7 +160,7 @@ def ai_rewrite(text, images, extra=""):
                 r = requests.post("https://api.anthropic.com/v1/messages", timeout=120, headers={
                     "x-api-key": env("ANTHROPIC_API_KEY"), "anthropic-version": "2023-06-01",
                     "content-type": "application/json"},
-                    json={"model": CLAUDE_MODEL, "max_tokens": 1500,
+                    json={"model": CLAUDE_MODEL, "max_tokens": 2000, "temperature": temperature,
                           "messages": [{"role": "user", "content": content}]})
                 r.raise_for_status()
                 return _parse_json(r.json()["content"][0]["text"])
@@ -173,13 +170,89 @@ def ai_rewrite(text, images, extra=""):
                 f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODELS[attempt % len(GEMINI_MODELS)]}:generateContent",
                 params={"key": env("GEMINI_API_KEY")}, timeout=120,
                 json={"contents": [{"parts": parts}],
-                      "generationConfig": {"responseMimeType": "application/json", "temperature": 0.7}})
+                      "generationConfig": {"responseMimeType": "application/json", "temperature": temperature}})
             r.raise_for_status()
             return _parse_json(r.json()["candidates"][0]["content"]["parts"][0]["text"])
         except Exception as e:  # mạng chập chờn / quá hạn mức
             print("AI lỗi, thử lại:", e)
             time.sleep(10 * (attempt + 1))
     raise RuntimeError("AI không trả lời được sau 6 lần")
+
+
+def ai_rewrite(text, images, extra=""):
+    """images: list[bytes] (jpeg). Trả về dict theo RULES (chỉ viết bài, KHÔNG chấm ảnh)."""
+    prompt = RULES + extra + "\n\n--- BÀI GỐC ---\n" + (text or "(không có chữ)") + f"\n--- Số ảnh đính kèm: {len(images)} ---"
+    return ai_call(prompt, images)
+
+
+# ---------------------------------------------------------------- kiểm tra ảnh (từng ảnh, tách riêng)
+IMAGE_CHECK_PROMPT = """Bạn là máy đọc chữ trong ảnh quảng cáo điện máy. CHỈ dựa vào những gì THẬT SỰ nhìn thấy trong ảnh này.
+1) ocr: chép lại nguyên văn TOÀN BỘ chữ nhìn thấy trong ảnh (giữ dấu tiếng Việt, mỗi cụm 1 dòng).
+2) store_info: liệt kê nguyên văn (chép đúng từng chữ như trong ocr) các cụm chữ là:
+   - số điện thoại / hotline của một cửa hàng cụ thể,
+   - địa chỉ: số nhà, tên đường, kiệt/hẻm, phường/xã, quận/huyện,
+   - tên riêng của một cửa hàng / chi nhánh / siêu thị cụ thể.
+   KHÔNG liệt kê: logo hoặc chữ thương hiệu chuỗi (Điện Máy Xanh, Thế Giới Di Động, TopZone, Bách Hóa Xanh),
+   tên hãng/sản phẩm/model (Livotec, Karofi, Samsung...), giá tiền, % giảm giá, thông số, chữ khuyến mãi chung.
+   Không thấy thì để mảng rỗng. Tuyệt đối không đoán.
+Chỉ trả về JSON: {"ocr": "...", "store_info": ["..."]}"""
+
+CHAIN_WHITELIST = ["dien may xanh", "dienmayxanh", "the gioi di dong", "thegioididong", "topzone",
+                   "bach hoa xanh", "an khang", "dmx", "tgdd"]
+PHONE_RE = re.compile(r"(?<![\d.,])(?:\+?84|0)[\s.\-]?[235789](?:[\s.\-]?\d){8}(?![\d.,]*\s*(?:đ|₫|vnd|vnđ))", re.I)
+ADDR_RE = re.compile(r"\b(đường|đ\.|phường|p\.|quận|q\.|huyện|xã|thị xã|thị trấn|tp\.?|thành phố|kiệt|hẻm|ngõ|ngã [34]|"
+                     r"chi nhánh|cn\b|số nhà|tổ \d|thôn)|\b\d{1,4}[a-z]?\s*/\s*\d|\b\d{1,4}[a-z]?\s+[A-ZĐ][a-zà-ỹ]+\s+[A-ZĐ]", re.I)
+STORE_RE = re.compile(r"\b(cửa hàng|siêu thị|shop|điện máy|chi nhánh)\s+\S+", re.I)
+
+
+def _norm(s):
+    import unicodedata
+    s = unicodedata.normalize("NFD", (s or "").lower()).replace("đ", "d")
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^a-z0-9]+", " ", s).strip()
+
+
+def verify_store_info(ocr, frags):
+    """Code tự kiểm lại: chỉ giữ cụm có THẬT trong chữ đọc được của ảnh và đúng dạng địa chỉ/SĐT/tên shop."""
+    n_ocr = _norm(ocr)
+    found = []
+    for f in frags or []:
+        f = str(f).strip()
+        nf = _norm(f)
+        if len(nf) < 4 or nf not in n_ocr:
+            continue  # AI nói có nhưng chữ đó không nằm trong ảnh -> bỏ qua
+        rest = nf
+        for w in CHAIN_WHITELIST:
+            rest = rest.replace(w, " ")
+        if not re.sub(r"\s+", "", rest):
+            continue  # chỉ là tên chuỗi Điện Máy Xanh/TGDĐ
+        if PHONE_RE.search(f) or ADDR_RE.search(f) or (STORE_RE.search(f) and len(rest.split()) >= 2):
+            found.append(f)
+    # SĐT cá nhân/cửa hàng trong ảnh mà AI bỏ sót (không tính tổng đài 1800/1900)
+    for m in PHONE_RE.finditer(ocr or ""):
+        if m.group(0) not in found:
+            found.append(m.group(0))
+    return found
+
+
+def check_images(images):
+    """Trả về (danh sách ảnh giữ, danh sách (số ảnh, lý do) bị bỏ, cảnh báo)."""
+    keep, dropped, warns = [], [], []
+    for i, b in enumerate(images):
+        try:
+            res = ai_call(IMAGE_CHECK_PROMPT, [b], temperature=0)
+        except Exception as e:
+            print("Không kiểm tra được ảnh", i, e)
+            keep.append(b)
+            warns.append(f"chưa kiểm tra được ảnh {i + 1}, xem kỹ trước khi đăng")
+            continue
+        bad = verify_store_info(res.get("ocr", ""), res.get("store_info"))
+        print(f"Ảnh {i}: store_info AI={res.get('store_info')} -> xác nhận={bad}")
+        if bad:
+            dropped.append((i + 1, "; ".join(bad)[:120]))
+        else:
+            keep.append(b)
+    return keep, dropped, warns
 
 
 # ---------------------------------------------------------------- Apify
@@ -268,6 +341,8 @@ def send_draft(d, n=None):
             f.close()
     head = f"📝 Bài {n} – {d.get('source_page', '')} lúc {d['source_time']}" if n else "📝 Bài đã sửa"
     info = f"Ảnh dùng: {len(imgs)} | ảnh bỏ (có địa chỉ shop khác): {d.get('dropped_images', 0)}"
+    for why in d.get("dropped_reasons") or []:
+        info += f"\n   – {why}"
     if d.get("warnings"):
         info += "\n⚠️ " + "; ".join(d["warnings"])
     if not imgs:
@@ -343,14 +418,14 @@ def cmd_fetch():
         if not res.get("is_sale_post"):
             print("Bỏ bài không phải bán hàng:", pid, res.get("reason"))
             continue
-        bad = set(int(i) for i in res.get("bad_images") or [] if str(i).isdigit())
-        keep = [b for i, b in enumerate(imgs) if i not in bad]
+        keep, dropped, img_warns = check_images(imgs)
         final, warns = normalize_post(res.get("post", ""))
         if warns:  # nhờ AI viết ngắn lại 1 lần
             res2 = ai_rewrite(text, keep[:3], extra="\n\nLƯU Ý: lần trước bài quá dài. Viết NGẮN hơn: tối đa 4 dòng, 220 ký tự.")
             final2, warns2 = normalize_post(res2.get("post", ""))
             if len(warns2) <= len(warns):
                 final, warns = final2, warns2
+        warns = warns + img_warns
         paths = []
         DRAFT_DIR.mkdir(exist_ok=True)
         for i, b in enumerate(keep):
@@ -359,7 +434,8 @@ def cmd_fetch():
             paths.append(rel)
         n += 1
         d = {"id": pid, "source_page": requests.utils.unquote(p.get("pageName") or "").replace("-", " "), "source_url": p.get("url"), "source_time": t.astimezone(VN_TZ).strftime("%H:%M %d/%m"),
-             "text": final, "warnings": warns, "images": paths, "dropped_images": len(bad)}
+             "text": final, "warnings": warns, "images": paths, "dropped_images": len(dropped),
+             "dropped_reasons": [f"ảnh {k}: «{why}»" for k, why in dropped]}
         save_draft(d)
         send_draft(d, n)
     save_state(st)
