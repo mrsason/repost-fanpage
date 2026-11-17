@@ -1,0 +1,32 @@
+name: Dang lai bai bi an (chay tay)
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "list = chi liet ke, repost = dang lai va xoa bai cu"
+        required: true
+        default: list
+        type: choice
+        options: [list, repost]
+
+concurrency:
+  group: fix-hidden
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: python fix_hidden.py ${{ inputs.mode }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
