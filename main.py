@@ -561,6 +561,37 @@ def handle_update(u, chat):
         send_draft(d)
 
 
+
+# ---------------------------------------------------------------- chuyển tiếp ntfy cho web điểm danh 4543
+# Apps Script bị ntfy.sh chặn (IP Google dùng chung, hết hạn mức) -> xếp tin vào hàng chờ,
+# bot này (IP riêng của GitHub) lấy hàng chờ mỗi ~45 giây và gửi giúp.
+RELAY_URL = os.getenv("NTFY_RELAY_URL", "")
+_relay_last = 0.0
+
+
+def relay_ntfy(force=False):
+    global _relay_last
+    if not RELAY_URL or (not force and time.time() - _relay_last < 45):
+        return
+    _relay_last = time.time()
+    try:
+        r = requests.get(RELAY_URL, params={"api": "q"}, timeout=60)
+        items = r.json().get("items", [])
+    except Exception as e:
+        print("Relay: không lấy được hàng chờ:", e)
+        return
+    for it in items:
+        for attempt in range(3):
+            try:
+                rr = requests.post("https://ntfy.sh/", json=it, timeout=30)
+                print("Relay ntfy:", rr.status_code, it.get("title"))
+                if rr.ok:
+                    break
+            except Exception as e:
+                print("Relay ntfy lỗi:", e)
+            time.sleep(5)
+
+
 TG_FILE = ROOT / "tg_state.json"
 
 
@@ -609,7 +640,8 @@ def cmd_poll(minutes):
     end = time.time() + minutes * 60
     print(f"Trực nút trong {minutes:.0f} phút")
     while True:
-        wait = int(max(0, min(50, end - time.time())))
+        relay_ntfy()
+        wait = int(max(0, min(40, end - time.time())))
         js = tg("getUpdates", offset=off, timeout=wait, allowed_updates=["message", "callback_query"])
         res = js.get("result", [])
         if res:
@@ -633,4 +665,4 @@ def cmd_poll(minutes):
 
 
 if __name__ == "__main__":
-    {"fetch": cmd_fetch, "approve": lambda: cmd_poll(0), "listen": lambda: cmd_poll(listen_minutes()), "test-ai": cmd_test_ai}[sys.argv[1] if len(sys.argv) > 1 else "fetch"]()
+    {"fetch": cmd_fetch, "approve": lambda: cmd_poll(0), "listen": lambda: cmd_poll(listen_minutes()), "test-ai": cmd_test_ai, "relay": lambda: relay_ntfy(True)}[sys.argv[1] if len(sys.argv) > 1 else "fetch"]()
