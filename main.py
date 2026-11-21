@@ -576,10 +576,16 @@ def relay_ntfy(force=False):
     _relay_last = time.time()
     try:
         r = requests.get(RELAY_URL, params={"api": "q"}, timeout=60)
-        items = r.json().get("items", [])
+        js = r.json()
+        items, kha = js.get("items", []), js.get("kha", [])
     except Exception as e:
         print("Relay: không lấy được hàng chờ:", e)
         return
+    for text in kha:  # báo riêng cho Kha qua Telegram (kết quả lấy bài share...)
+        try:
+            send_text("📋 Web điểm danh 4543\n" + text, disable_web_page_preview=True)
+        except Exception as e:
+            print("Relay Telegram lỗi:", e)
     for it in items:
         for attempt in range(3):
             try:
@@ -591,6 +597,30 @@ def relay_ntfy(force=False):
                 print("Relay ntfy lỗi:", e)
             time.sleep(5)
 
+
+_posts_last = 0.0
+
+
+def push_fb_posts(force=False):
+    """Lấy các bài mới nhất của fanpage shop (bằng token trang có sẵn) và gửi sang web điểm danh, ~10 phút/lần.
+    Web điểm danh dùng danh sách này lúc 9h (ca sáng) và 13h (ca chiều)."""
+    global _posts_last
+    tok = os.getenv("FB_PAGE_TOKEN", "")
+    if not RELAY_URL or not tok or (not force and time.time() - _posts_last < 600):
+        return
+    _posts_last = time.time()
+    try:
+        r = requests.get(f"{GRAPH}/me/posts", params={"fields": "message,permalink_url", "limit": 10, "access_token": tok}, timeout=60)
+        data = r.json().get("data")
+        if data is None:
+            print("Lấy bài fanpage lỗi:", r.text[:300])
+            return
+        posts = [{"t": ((p.get("message") or "Bài đăng").strip().split("\n")[0])[:60], "u": p["permalink_url"]}
+                 for p in data if p.get("permalink_url")]
+        rr = requests.post(RELAY_URL, json={"api": "posts", "posts": posts}, timeout=60)
+        print("Gửi bài cho web điểm danh:", rr.status_code, rr.text[:120])
+    except Exception as e:
+        print("push_fb_posts lỗi:", e)
 
 TG_FILE = ROOT / "tg_state.json"
 
@@ -640,6 +670,7 @@ def cmd_poll(minutes):
     end = time.time() + minutes * 60
     print(f"Trực nút trong {minutes:.0f} phút")
     while True:
+        push_fb_posts()
         relay_ntfy()
         wait = int(max(0, min(40, end - time.time())))
         js = tg("getUpdates", offset=off, timeout=wait, allowed_updates=["message", "callback_query"])
@@ -665,4 +696,4 @@ def cmd_poll(minutes):
 
 
 if __name__ == "__main__":
-    {"fetch": cmd_fetch, "approve": lambda: cmd_poll(0), "listen": lambda: cmd_poll(listen_minutes()), "test-ai": cmd_test_ai, "relay": lambda: relay_ntfy(True)}[sys.argv[1] if len(sys.argv) > 1 else "fetch"]()
+    {"fetch": cmd_fetch, "approve": lambda: cmd_poll(0), "listen": lambda: cmd_poll(listen_minutes()), "test-ai": cmd_test_ai, "relay": lambda: (push_fb_posts(True), relay_ntfy(True))}[sys.argv[1] if len(sys.argv) > 1 else "fetch"]()
