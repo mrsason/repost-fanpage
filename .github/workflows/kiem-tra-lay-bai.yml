@@ -1,0 +1,21 @@
+name: Kiem tra lay bai cho web diem danh (chay tay)
+on:
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Lay bai fanpage gui sang web diem danh + chuyen tin cho Kha
+        run: python main.py relay
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          NTFY_RELAY_URL: https://script.google.com/macros/s/AKfycbzx5UZHIJbHvTwVW_7wxH3cU6ah_HlNit2MFbjRJoC3CsNAFX-ED4F7pFXRvJnAKCxyrg/exec
