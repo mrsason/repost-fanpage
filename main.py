@@ -28,6 +28,7 @@ DRAFT_DIR = ROOT / "drafts"
 
 SOURCE_URLS = [u.strip() for u in (os.getenv("SOURCE_URL") or "https://www.facebook.com/cuahangdientugiatot.dn,https://www.facebook.com/profile.php?id=61556486280886").split(",") if u.strip()]
 LOOKBACK_HOURS = int(os.getenv("LOOKBACK_HOURS", "26"))
+MAX_PER_DAY = int(os.getenv("MAX_PER_DAY", "4"))
 AI_PROVIDER = (os.getenv("AI_PROVIDER") or "gemini").lower()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-flash-latest"
 GEMINI_MODELS = [GEMINI_MODEL, "gemini-flash-lite-latest"]
@@ -260,7 +261,7 @@ def fetch_posts(since):
     url = "https://api.apify.com/v2/acts/apify~facebook-posts-scraper/run-sync-get-dataset-items"
     r = requests.post(url, params={"token": env("APIFY_TOKEN"), "timeout": 280}, timeout=320, json={
         "startUrls": [{"url": u} for u in SOURCE_URLS],
-        "resultsLimit": int(os.getenv("RESULTS_LIMIT", "15")),
+        "resultsLimit": int(os.getenv("RESULTS_LIMIT", "2")),  # 2 bài/trang x 2 trang = tối đa 4 bài/ngày
         "onlyPostsNewerThan": since.strftime("%Y-%m-%d"),
     })
     r.raise_for_status()
@@ -387,7 +388,14 @@ def cmd_fetch():
     st = load_state()
     now = datetime.now(timezone.utc)
     since = now - timedelta(hours=LOOKBACK_HOURS)
-    items = fetch_posts(since)
+    try:
+        items = fetch_posts(since)
+    except Exception as e:
+        msg = str(e)
+        if "402" in msg:
+            msg = "Apify đã hết tiền miễn phí trong tháng (402 Payment Required). Vào console.apify.com → Billing để xem ngày làm mới hoặc nạp thêm."
+        send_text("⚠️ Sáng nay lấy bài bị lỗi, chưa có bài mới:\n" + msg[:500])
+        raise
     print(f"Apify trả về {len(items)} bài")
     new = []
     for p in items:
@@ -397,6 +405,7 @@ def cmd_fetch():
             continue
         new.append((t or now, pid, p))
     new.sort(key=lambda x: x[0])
+    new = new[-MAX_PER_DAY:]  # chỉ giữ tối đa 4 bài mới nhất
 
     n = 0
     for t, pid, p in new:
