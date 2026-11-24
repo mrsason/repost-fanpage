@@ -259,13 +259,22 @@ def check_images(images):
 # ---------------------------------------------------------------- Apify
 def fetch_posts(since):
     url = "https://api.apify.com/v2/acts/apify~facebook-posts-scraper/run-sync-get-dataset-items"
-    r = requests.post(url, params={"token": env("APIFY_TOKEN"), "timeout": 280}, timeout=320, json={
-        "startUrls": [{"url": u} for u in SOURCE_URLS],
-        "resultsLimit": int(os.getenv("RESULTS_LIMIT", "2")),  # 2 bài/trang x 2 trang = tối đa 4 bài/ngày
-        "onlyPostsNewerThan": since.strftime("%Y-%m-%d"),
-    })
-    r.raise_for_status()
-    return r.json()
+    # 2 tài khoản Apify: APIFY_TOKEN (chính) và APIFY_TOKEN_2 (dự phòng). Tài khoản nào hết tiền (402) thì dùng tài khoản kia.
+    tokens = [t.strip() for t in (os.getenv("APIFY_TOKEN"), os.getenv("APIFY_TOKEN_2")) if t and t.strip()]
+    if not tokens:
+        sys.exit("Thiếu APIFY_TOKEN (kiểm tra GitHub Secrets)")
+    for i, tok in enumerate(tokens):
+        r = requests.post(url, params={"token": tok, "timeout": 280}, timeout=320, json={
+            "startUrls": [{"url": u} for u in SOURCE_URLS],
+            "resultsLimit": int(os.getenv("RESULTS_LIMIT", "2")),  # 2 bài/trang x 2 trang = tối đa 4 bài/ngày
+            "onlyPostsNewerThan": since.strftime("%Y-%m-%d"),
+        })
+        if r.status_code in (401, 402, 403) and i + 1 < len(tokens):
+            print(f"Apify tài khoản {i + 1} lỗi {r.status_code}, chuyển sang tài khoản {i + 2}")
+            continue
+        r.raise_for_status()
+        print(f"Dùng Apify tài khoản {i + 1}")
+        return r.json()
 
 
 def post_time(p):
@@ -393,7 +402,7 @@ def cmd_fetch():
     except Exception as e:
         msg = str(e)
         if "402" in msg:
-            msg = "Apify đã hết tiền miễn phí trong tháng (402 Payment Required). Vào console.apify.com → Billing để xem ngày làm mới hoặc nạp thêm."
+            msg = "Cả 2 tài khoản Apify đều hết tiền miễn phí trong tháng (402 Payment Required). Vào console.apify.com → Billing để xem ngày làm mới."
         send_text("⚠️ Sáng nay lấy bài bị lỗi, chưa có bài mới:\n" + msg[:500])
         raise
     print(f"Apify trả về {len(items)} bài")
