@@ -1,7 +1,9 @@
 name: Lay bai moi va gui nhap
 on:
   schedule:
-    - cron: "30 0 * * *"   # 7:30 sáng giờ Việt Nam
+    # Lấy bài 2 lần/ngày: khung 9h và 15h giờ VN. GitHub hay chạy trễ ~1 tiếng nên hẹn sớm hơn (8:15 và 14:15 VN).
+    - cron: "15 1 * * *"
+    - cron: "15 7 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -28,6 +30,7 @@ jobs:
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
           APIFY_TOKEN_2: ${{ secrets.APIFY_TOKEN_2 }}
+          RESULTS_LIMIT: "1"   # 1 bài/trang/lần x 2 trang x 2 lần = tối đa 4 bài/ngày
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AI_PROVIDER: ${{ vars.AI_PROVIDER }}
