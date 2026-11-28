@@ -580,6 +580,66 @@ def handle_update(u, chat):
 
 
 
+# ---------------------------------------------------------------- cập nhật số liệu Dữ Liệu 4543 (dùng chung bot)
+# Lệnh lknv / rt / bccn / lich / xoa và ảnh (gửi kèm hoặc dạng File) được chuyển cho Apps Script xử lý.
+DATA_URL = os.getenv("DATA4543_URL", "https://script.google.com/macros/s/AKfycby9m3CPbgsdl8WmcGDC-TMBB5u9Meoo1pIDk9zrorDeHaUUzVZSD-PRo4NrMuI__iT3/exec")
+DATA_CMDS = {"lknv", "luy ke", "rt", "realtime", "dtn", "bccn", "lich", "xoa", "so lieu", "data"}
+_data_buf = []
+
+
+def _plain(s):
+    import unicodedata
+    s = unicodedata.normalize("NFD", s or "").replace("đ", "d").replace("Đ", "d")
+    return "".join(ch for ch in s if unicodedata.category(ch) != "Mn").lower().strip()
+
+
+def is_data_update(u):
+    m = u.get("message")
+    if not m or m.get("reply_to_message"):
+        return False
+    if m.get("photo"):
+        return True
+    doc = m.get("document") or {}
+    if (doc.get("mime_type") or "").startswith("image/"):
+        return True
+    return _plain(m.get("text")) in DATA_CMDS
+
+
+def data_flush(chat):
+    global _data_buf
+    if not _data_buf:
+        return
+    buf, _data_buf = _data_buf, []
+    cmds, files = [], []
+    for m in buf:
+        if m.get("text"):
+            cmds.append(m["text"])
+            continue
+        if m.get("photo"):
+            ph = m["photo"][-1]
+            f = {"id": ph["file_id"], "name": ph["file_unique_id"], "w": ph.get("width"), "h": ph.get("height"), "kind": "photo"}
+        else:
+            d = m["document"]
+            f = {"id": d["file_id"], "name": d["file_unique_id"], "kind": "file", "fname": d.get("file_name"), "mime": d.get("mime_type")}
+        try:
+            info = tg("getFile", file_id=f["id"])["result"]
+            raw = requests.get(f"https://api.telegram.org/file/bot{env('TELEGRAM_BOT_TOKEN')}/{info['file_path']}", timeout=60).content
+            f["b64"] = base64.b64encode(raw).decode()
+            f.setdefault("mime", "image/png" if info["file_path"].lower().endswith(".png") else "image/jpeg")
+            if not f.get("mime"):
+                f["mime"] = "image/jpeg"
+            files.append(f)
+        except Exception as e:
+            send_text(f"⚠️ Không tải được 1 ảnh: {str(e)[:200]}")
+    try:
+        r = requests.post(DATA_URL, json={"type": "tg", "token": env("TELEGRAM_BOT_TOKEN"), "chat": chat, "cmds": cmds, "files": files}, timeout=330)
+        print("Dữ Liệu 4543:", r.status_code, r.text[:120])
+        if r.text.strip() not in ("ok", "OK"):
+            send_text(f"⚠️ Trang Dữ Liệu 4543 báo: {r.text[:200]}")
+    except Exception as e:
+        send_text(f"⚠️ Gửi ảnh sang trang Dữ Liệu 4543 lỗi: {str(e)[:200]}")
+
+
 # ---------------------------------------------------------------- chuyển tiếp ntfy cho web điểm danh 4543
 # Apps Script bị ntfy.sh chặn (IP Google dùng chung, hết hạn mức) -> xếp tin vào hàng chờ,
 # bot này (IP riêng của GitHub) lấy hàng chờ mỗi ~45 giây và gửi giúp.
@@ -690,25 +750,33 @@ def cmd_poll(minutes):
     while True:
         push_fb_posts()
         relay_ntfy()
-        wait = int(max(0, min(40, end - time.time())))
+        wait = int(max(0, min(3 if _data_buf else 40, end - time.time())))
         js = tg("getUpdates", offset=off, timeout=wait, allowed_updates=["message", "callback_query"])
         res = js.get("result", [])
         if res:
             print("Telegram:", [(u.get("callback_query") or {}).get("data") or "tin nhắn" for u in res])
             git_sync()
+        got_data = False
         for u in res:
             off = u["update_id"] + 1
             save_offset(off)
+            if str(((u.get("message") or {}).get("chat") or {}).get("id")) == chat and is_data_update(u):
+                _data_buf.append(u["message"])
+                got_data = True
+                continue
             try:
                 handle_update(u, chat)
             except Exception as e:
                 print("Lỗi xử lý:", e)
                 send_text(f"⚠️ Lỗi khi xử lý: {str(e)[:300]}")
+        if _data_buf and not got_data:
+            data_flush(chat)
         if res:
             git_sync(f"duyet {datetime.now(VN_TZ):%d/%m %H:%M}")
         if not js.get("ok"):
             time.sleep(10)
         if time.time() >= end:
+            data_flush(chat)
             break
     save_offset(off)
 
